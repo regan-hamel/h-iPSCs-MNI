@@ -1,0 +1,945 @@
+
+---
+title: "HUMAN iPSC DERIVED MOTOR NEURONS AFTER 28 DAYS OF INDUCTION"
+
+workflow adapted from:
+Lun, A. M., DJ; Marioni, JC (2016). "A step-by-step workflow for low-level analysis of single-cell RNA-seq data with Bioconductor." F1000 Research 5(2122 ).
+	
+version authour:
+- name: Regan Hamel
+  affiliation: Department of Clinical Neurosciences, Cambridge Biosciences
+Campus and NIHR Biomedical Research Centre, University of Cambridge
+- name: Louise Thiry
+  affiliation: Department of Neurology and Neurosurgery, Montreal Neurological Institute-Hospital,
+McGill University
+
+date: "`r Sys.Date()`"
+
+---
+
+#1 INTRODUCTION
+Human induced pluripotent stem cells (iPSCs) offer the opportunity to generate specific cell types from healthy and diseased individuals, allowing the study of mechanisms of early human development, modelling a variety of human diseases, and facilitating the development of new therapeutics. Human iPSC-based applications are often limited by the variability among iPSC lines originating from a single donor, as well as the heterogeneity among specific cell types that can be derived from iPSCs. The ability to deeply phenotype different iPSC-derived cell types is therefore of primary importance to the successful and informative application of this technology. Here we describe a combination of motor neuron (MN) derivation and single-cell RNA sequencing approaches to generate and characterize specific MN subtypes obtained from human iPSCs. Our studies provide evidence for rapid and robust generation of MN progenitor cells that can give rise to a heterogenous population of brainstem and spinal cord MNs. Approximately 58% of human iPSC-derived MNs display molecular characteristics of lateral motor column MNs, ∼19% of induced MNs resemble hypaxial motor column MNs, while ∼6% of induced MNs have features of medial motor column MNs. The present study has the potential to improve our understanding of iPSC-derived MN subtype function and dysfunction, possibly leading to improved iPSC-based applications for the study of human MN biology and diseases.
+
+#2 READING IN A SPARSE MATRIX
+
+We load the 10X filtered data, creating a SingleCellExperiment (sce) object where each column corresponds to a cell barcode.Each count represents the number of unique molecular identifiers (UMIs) assigned to a gene for a cell barcode.
+```{r}
+library(DropletUtils)
+sce<- read10xCounts("/Users/louise/Documents/R workflow/control_D28/Filtered", col.names=TRUE)
+
+class(counts(sce))
+```
+
+
+#3 ANNOTATING THE ROWS WITH GENE SYMBOLS
+
+This is done using the  uniquifyFeatureNames() function, which ensures uniqueness in the case of duplicated or missing symbols.
+```{r}
+library(scater)
+rownames(sce) <- uniquifyFeatureNames(rowData(sce)$ID, rowData(sce)$Symbol)
+head(rownames(sce))
+```
+
+Identifying raws with human gene symbols, as well as the chromosomal location for each gene. The mitochondrial location will be useful for later quality control.
+```{r}
+library(EnsDb.Hsapiens.v86) #For human gene symbols
+location <- mapIds(EnsDb.Hsapiens.v86, keys=rowData(sce)$ID, 
+    column="SEQNAME", keytype="GENEID")
+rowData(sce)$CHR <- location
+summary(location=="MT") #TRUE = MT gene
+```
+
+#4 QUALITY CONTROL (QC)
+
+Remove the effects of barcode swapping 
+```{r}
+library(DropletUtils)
+set.seed(1000)
+s.out <- swappedDrops (sce, barcode.length=NULL, min.frac=0.9, get.swapped=FALSE, get.diagnostics=FALSE, hdf5.out=TRUE)
+length(s.out$cleaned)
+class(s.out$cleaned[[1]])
+```
+
+##4.1 Quality control on the cells
+
+We compute some QC metrics using  calculateQCMetrics() (McCarthy et al. 2017) and examine their distributions.
+
+total_counts = (library size) number of UMI counts for the cell (ie for each 10X barcode)
+total_features = (# of expressed genes) with expression above the detection limit (0)
+```{r}
+library(scater)
+sce <- calculateQCMetrics(sce, feature=list(Mito=which(location=="MT")))
+#Examining the number of detected mRNAs per cell
+hist(sce$total_counts/1e3, xlab="UMI Counts (thousands)", breaks=20, col="grey80",
+     ylab="Number of cells", main = "Number of Detected Transcripts per Cell")
+dev.off()
+
+#Examining the number of detected genes per cell
+hist(sce$total_features_by_counts/1e3, breaks=20, col="grey80",
+    xlab="Number of Expressed Genes (thousands)", main = "Number of Detected Genes per Cell", ylab="Number of cells")
+dev.off()
+
+#Examining the proportion of mitochondrial to nuclear DNA
+hist(sce$pct_counts_Mito/1e3, breaks=20, col="grey80",
+    xlab="Proportion of Reads That Are Mitochondrial Genes", ylab="Number of cells", main = "Mitochondrial Genes per Cell")
+dev.off()
+```
+
+##4.2 Removing cells with low library sizes or total number of expressed features, likely corresponding to damaged cells or ambiant RNA.
+
+Number of cells removed by each filter, and number of remaining cells after QC
+```{r}
+libsize.drop <- isOutlier(sce$total_counts, nmads=2, type="lower", log=TRUE)
+feature.drop <- isOutlier(sce$total_features_by_counts, nmads=2, type="lower", log=TRUE)
+
+sce <- sce[,!(libsize.drop | feature.drop )]
+
+data.frame(ByLibSize=sum(libsize.drop), ByFeature=sum(feature.drop), Remaining=ncol(sce), row.names = "# of cells")
+```
+
+##4.3 Removing cells with large mitochondrial proportions, using it as a proxy for cell damage.
+
+Note that if you run this more than once, the number of true accounts change because you've removed the original batch, changing the proportions --- so make sure you only run it on the sce once.
+```{r}
+high.mito <- isOutlier(sce$pct_counts_Mito, nmads=3, type="higher")
+sce <- sce[,!high.mito]
+summary(high.mito) #True = number of cells excluded because of large mitochondrial RNA to cytoplasmic RNA levels
+```
+
+##4.4 Median values for number of detected reads/cell, number of detected genes/cell and proportion of MT RNA/cell
+```{r}
+#Examining the number of detected mRNAs per cell
+DetectedReads.median <- median(sce$total_counts)
+
+#Examining the number of detected genes per cell
+DetectedGenes.median <- median(sce$total_features_by_counts)
+DetectedGenes.min <- min(sce$total_features_by_counts)
+
+#Examining the proportion of mitochondrial to nuclear DNA
+MTproportion.median <- median(sce$pct_counts_Mito)
+
+#Print
+DetectedReads.median
+DetectedGenes.median
+MTproportion.median
+DetectedGenes.min
+```
+
+#5 NORMALIZATION 
+
+##5.1 Filtering out low-abundance genes (by calculating the average counts across all cells)
+"Low-abundance genes are problematic because 0 or near-zero counts do not contain enough information for reliable statistical inference (Bourgon et al, 2010). In addition, the discreteness of the counts may interfere with downstream statistical procedures by compromising the accuracy of continuous approximations. Here, low-abundance genes are defined as those with an average count below a filter threshold of 1. These genes are likely to be dominated by drop-out events (Brennecke et al, 2013), which limits their usefulness in later analyses." (Lun et al. 2016)
+
+```{r}
+ave.counts <- calcAverage(sce)
+to.keep <- ave.counts > 0
+sce <- sce[to.keep,]
+summary(to.keep) # TRUE = number of genes remaining
+```
+
+##5.2 Examining gene expression
+
+"To check whether the chosen threshold is suitable, we examine the distribution of log-means across all genes. The peak represents the bulk of moderately expressed genes while the rectangular component corresponds to lowly expressed genes. The filter threshold should cut the distribution at some point along the rectangular component to remove the majority of low-abundance genes." (Lun et al. 2016)
+```{r}
+ave <- calcAverage(sce)
+rowData(sce)$AveCount <- ave
+hist(log10(ave), breaks=100, main="", col="grey80",
+     xlab=expression(Log[10]~"average count"))
+abline(v=log10(1), col="blue", lwd=2, lty=2)
+```
+
+##5.3 Plot the most highly expressed genes
+
+"Examining the most highly expressed genes. These should be dominated by ribosomal protein and mitochondrial genes. "For each feature, each bar represents the percentage assigned to that feature for a single cell, while the circle represents the average across all cells. Bars are coloured by the total number of expressed features in each cell." (Lun et al. 2016)
+```{r}
+library(ggplot2)
+library(scater)
+plotHighestExprs(sce) + ggtitle("HighestExpressedGenes")
+```
+
+##5.4 Normalizing for cell-specific biases (such as differences in capture efficiency and sequencing depth between cells)
+
+We apply the deconvolution method to compute size factors for all cells (Lun, Bach, and Marioni 2016 https://genomebiology.biomedcentral.com/articles/10.1186/s13059-016-0947-7). 
+
+```{r}
+library(scran)
+library(irlba)
+set.seed(1000)
+
+clusters <- quickCluster(sce, method="igraph", min.mean=0.1,
+    irlba.args=list(maxit=1000))
+sce <- computeSumFactors(sce, min.mean=0.1, cluster=clusters)
+
+table(clusters)
+summary(sizeFactors(sce))
+```
+
+##5.5 Comparing the above size factors to their library size
+
+A tight linear correlation suggests that the systematic differences between cells are primarily driven by differences in capture efficiency or sequencing depth. Any differential expression between cells would yield a non-linear trend between the total count and size factor, and/or increased scatter around the trend.
+```{r}
+plot(sizeFactors(sce), sce$total_counts, log="xy", ylab ="UMI Counts Per Cell", xlab = "Size Factor")
+dev.off() 
+```
+
+##5.6 Normalizing each gene based on the size factor.
+
+We compute normalized log-expression values.
+```{r}
+sce <- normalize(sce) 
+```
+
+
+#6 MODELLING VARIANCE & DENOISING
+
+##6.1 Modelling the mean-variance trend
+
+For a heterogenous population, we assume that the technical noise is Poisson and create a fitted trend on that basis using the makeTechTrend() function. The Poisson-based trend serves as a lower bound for the variances of the endogenous genes, consistent with non-zero biological components. (Lun et al. 2016)
+```{r}
+library(scran)
+
+new.trend <- makeTechTrend(x=sce)
+fit <- trendVar(sce, use.spikes=FALSE, loess.args=list(span=0.05))
+```
+
+Looking at the variation of the genes compared to the quantity of their expression.
+```{r}
+plot(fit$mean, fit$var, pch=20, ylab = "Variance of Log-Expression", xlab = "Mean Log-Expression", main = "Variance of Gene Log-Expression Values" )
+curve(fit$trend(x), col="dodgerblue", add=TRUE)
+curve(new.trend(x), col="red", add=TRUE) # The blue line represents the mean-dependent trend fitted to the variances, while the red line represents the Poisson (technical) noise.
+```
+
+##6.2 Examining the genes with the highest biological components
+
+We enrich for genes with biological variation by identifying the genes of interest as those with net biological components > 0. This reducines the effect of non-biologically driven Poisson noise in the downstream analyses.
+```{r}
+fit$trend <- new.trend
+dec <- decomposeVar(fit=fit)
+top.dec <- dec[order(dec$bio, decreasing=TRUE),] 
+head(top.dec)
+```
+
+##6.3 Violin plot of the genes with the largest biological components
+
+Check the distribution of the expression values for genes that have the largest biological (variance) components, we want to make sure they are not being driven by outlying cells (they should have a wide range (vertically) of expression without all the cells in one bulge).
+```{r}
+library(scater)
+plotExpression(sce, features=rownames(top.dec)[1:10])
+```
+
+#7 DIMENSIONALITY REDUCTION
+
+##7.1 Removing the principal components (PCs) corresponding to technical noise
+
+We assume that co-regulation of genes will account for a large portion of the variance (and thus an earlier principle component) and that random, technical noise will affects each gene differently and therefore will account for way less variance (and thus a later principle component). So by using only a few early principle components, we get rid of this random variance that is likely caused by random technical noise.
+```{r}
+library(scran)
+library(scater)
+
+# Set seed to allow replicability
+set.seed(1000)
+
+# Save the sce after using PCA to regress out technical noise
+sce <- denoisePCA(sce, technical=new.trend, approx=TRUE)
+
+# Updating the sce object with the PC scores for each cell in the reducedDims slot
+ncol(reducedDim(sce, "PCA"))
+```
+
+PCA plot of the first few components (can change the amounts by using ncomponents) to visualize the relationships between cells. Each point represents a cell, coloured according to its total number of expressed features (ie number of expressed genes). Bars represent the coordinates of the cells on each axis.
+```{r}
+plot(attr(reducedDim(sce), "percentVar"), xlab="PC",
+    ylab="Proportion of variance explained")
+abline(v=ncol(reducedDim(sce, "PCA")), lty=2, col="red") # The red line represents the chosen number of principle components
+dev.off()
+```
+
+##7.2 Examining the first few PCs.
+
+Note: outliers on a PCA plot may be indicative of low-quality cells that have aberrant technical properties compared to the (presumed) majority of high-quality cells.
+```{r}
+plotPCA(sce, ncomponents=3)
+```
+
+##7.3 Visualizing data with a t-SNE plot
+
+Again, note that we set use_dimred= to perform t-SNE on the denoised expression matrix.
+Comparing the t-SNE plots obtained with Perplexity=30, 40 or 50 to ensure stability in the substructure of the t-SNE plot across varying perplexities
+```{r}
+runTSNE(sce, use_dimred="PCA", perplexity=30, set.seed=100) 
+tSNE30 <- plotTSNE(sce) + ggtitle ("Perplexity = 30")
+
+runTSNE(sce, use_dimred="PCA", perplexity=40, set.seed=100) 
+tSNE40 <- plotTSNE(sce) + ggtitle ("Perplexity = 40")
+
+runTSNE(sce, use_dimred="PCA", perplexity=50, set.seed=100) 
+tSNE50 <- plotTSNE(sce) + ggtitle ("Perplexity = 50")
+
+multiplot(tSNE30, tSNE40, tSNE50, cols=3) # Each point represents a cell and is coloured according to the log-number of expressed features.
+```
+
+##7.4 Running the t-SNE with the appropriate perplexity and saving the updated sce object
+
+```{r}
+sce <- runTSNE(sce, use_dimred="PCA", perplexity=40, rand_seed=NULL) 
+plotTSNE(sce) + ggtitle ("t-SNE, Perplexity = 40")
+```
+
+#8. CLUSTERING WITH GRAPH-BASED METHODS
+
+Build a shared nearest neighbour (SNN) graph (Xu and Su 2015) and use the Walktrap algorithm to identify clusters
+```{r}
+library(scran)
+library(scater)
+
+set.seed(1000)
+snn.gr <- buildSNNGraph(sce, use.dimred="PCA")
+clusters <- igraph::cluster_walktrap(snn.gr, steps = 7)
+sce$Cluster <- factor(clusters$membership)
+table(sce$Cluster)
+```
+
+##8.1 Examining the clusters separation
+
+We look at the ratio of the observed and expected edge weights to confirm that the clusters are modular. To visualize this, we construct a heatmap of the log10-ratio of the total weight between nodes in the same cluster or in different clusters, relative to the total weight (vs) expected under a null model of random links.
+```{r}
+library(pheatmap)
+cluster.mod <- clusterModularity(snn.gr, sce$Cluster, get.values=TRUE)
+log.ratio <- log2(cluster.mod$observed/cluster.mod$expected + 1)
+pheatmap(log.ratio, cluster_rows=FALSE, cluster_cols=FALSE, 
+     color=colorRampPalette(c("white", "blue"))(100), main = "Heatmap Showing Cluster Separation") 
+```
+
+##8.2 Examining the cluster identities on a t-SNE plot, to confirm that different clusters are indeed separated.
+
+Each point represents a cell and is coloured according to its cluster identity.
+```{r}
+plotTSNE(sce, colour_by="Cluster") +  ggtitle("t-SNE by Cluster, Perplexity = 40") 
+```
+
+
+#9 IDENTIFYING SUB-POPULATIONS IN THE DATA SET
+
+##9.1 labelling the cell population by marker genes
+
+```{r}
+#Count Motor Neurons (MNs) and Motor Neuron Progenitor Cells (MNPCs), identified by the expression of CHAT, ISL1, ISL2, MNX1, OLIG2, NEUROG2
+sce$is.MN <- counts(sce)["CHAT", ]>0 | counts(sce)["ISL1", ]>0 | counts(sce)["ISL2", ]>0 | counts(sce)["MNX1", ]>0 | counts(sce)["OLIG2", ]>0 | counts(sce)["NEUROG2", ]>0
+
+# Count Interneurons (INs), identified by the expression of PAX3, VSX2, GATA3, SOX14, SIM1, LBX1, TLX3; and lack of expression of MNX1, OLIG2, CHAT, ISL1, ISL2, NEUROG2
+sce$is.IN <- counts(sce)["PAX3",] >=1 | counts(sce)["VSX2",] >=1 | counts(sce)["GATA3",] >=1 | counts(sce)["SOX14",] >=1 | counts(sce)["SIM1",] >=1 | counts(sce)["LBX1",] >=1 & counts(sce)["TLX3",] >=1 & counts(sce)["MNX1",] <=0 & counts(sce)["OLIG2",] <=0 & counts(sce)["CHAT",] <=0 & counts(sce)["ISL1",] <=0 & counts(sce)["ISL2",] <=0 & counts(sce)["NEUROG2",] <=0
+
+# Count Neural Progenitor Cells (NPCs), identified by the expression of SOX1, SOX2, MKI67
+sce$is.NPC <- counts(sce)["SOX1",] >=1 | counts(sce)["SOX2",] >=1 & counts(sce)["MKI67",] >=1 
+
+# Count Glial Cells, identified by the expression of SOX9, S100B, GFAP
+sce$is.Glia <- counts(sce)["SOX9",] > 0 | counts(sce)["S100B",] > 0 #Absence of GFAP+ cell
+
+# Count Oligodendrocytes, identified by the expression of PDFRA, GALC
+sce$is.OL <- counts(sce)["PDGFRA",] > 0 | counts(sce)["GALC",] > 0
+
+# Count undifferentiated cells (iPSCs), identified by the expression of NANOG, OCT4 (=POU5F1)
+sce$is.iPSC <- counts(sce)["NANOG", ]>0 | counts(sce)["POU5F1", ]>0
+
+# Print the number of cells in each sub-population
+sum(sce$is.MN)
+sum(sce$is.IN)
+sum(sce$is.NPC)
+sum(sce$is.Glia)
+sum(sce$is.OL)
+sum(sce$is.iPSC)
+```
+
+##9.2 Colouring the t-SNE plot for MNs and MNPCs
+
+```{r}
+plotTSNE(sce, colour_by = "is.MN") +  ggtitle("t-SNE MNs and MNPCs, Perplexity = 40")
+```
+
+##9.3 Looking at other cell types potentially present in the data set
+
+```{r}
+# Count cells of the endodermal lineage, identified by the expression of GATA4
+sce$is.endoderm <- counts(sce)["GATA4", ]>0
+
+# Count cells of the esodermal lineage, identified by the expression of TBXT
+sce$is.mesoderm <- counts(sce)["TBXT", ]>0 #There is none in the data set
+
+# Count cells of the anterior structures lineage, identified by the expression of FOXG1
+sce$is.FOXG1 <- counts(sce)["FOXG1", ]>0 #There is none in the data set
+
+#Print
+sum(sce$is.endoderm)
+#sum(sce$is.mesoderm)
+#sum(sce$is.FOXG1)
+
+```
+
+#9.4 Counting the number of cells per cluster, for each identified sub-population
+
+```{r}
+# Defining genes for MNs and MNPCs identification
+gene1 <- "CHAT"
+gene2 <- "ISL1"
+gene3 <- "ISL2"
+gene4 <- "MNX1"
+gene5 <- "OLIG2"
+gene6 <- "NEUROG2"
+
+# Defining genes for INs identification
+gene7 <- "PAX2"
+gene8 <- "PAX3"
+gene9 <- "VSX2"
+gene10 <- "GATA3"
+gene11 <- "SOX14"
+gene12 <- "SIM1"
+gene13 <- "LBX1"
+gene14 <- "TLX3"
+
+# Defining genes for Glia identification
+gene15 <- "S100B"
+gene16 <- "SOX9"
+
+# Defining genes for Oligodndrocytes (OL) identification 
+gene17 <- "PDGFRA"
+gene18 <- "GALC"
+
+#NPCs
+gene19 <-"SOX1"
+gene20 <- "SOX2"
+gene21 <-"MKI67"
+
+#iPSCs
+gene22 <-"NANOG"
+gene23 <- "POU5F1"
+
+
+#Create a boolean list of cells expressing the gene of interest
+
+MN <- counts(sce)[gene1, ]>0 | counts(sce)[gene2, ]>0 | counts(sce)[gene3, ]>0 | counts(sce)[gene4, ]>0 | counts(sce)[gene5, ]>0 | counts(sce)[gene6, ]>0
+
+NPC <- counts(sce)[gene15,] <0 & counts(sce)[gene16,] <0 & counts(sce)[gene17,] <0 & counts(sce)[gene18,] <0 & counts(sce)[gene19,]<0 & counts(sce)[gene20,]<0 & counts(sce)[gene21,]<0 & counts(sce)[gene1, ]<0 & counts(sce)[gene2, ]<0 & counts(sce)[gene3, ]<0 & counts(sce)[gene4, ]<0 & counts(sce)[gene7,] <0 & counts(sce)[gene8,] <0 & counts(sce)[gene9,] <0 & counts(sce)[gene10,] <0 & counts(sce)[gene11,] <0 & counts(sce)[gene12,] <0 & counts(sce)[gene13,] <0 & counts(sce)[gene14,] <0 & counts(sce)[gene19,] >0 | counts(sce)[gene20,] >0 | counts(sce)[gene21,] >0
+
+Glia <-  counts(sce)[gene17,] <0 & counts(sce)[gene18,] <0 & counts(sce)[gene19,]<0 & counts(sce)[gene20,]<0 & counts(sce)[gene21,]<0 & counts(sce)[gene1, ]<0 & counts(sce)[gene2, ]<0 & counts(sce)[gene3, ]<0 & counts(sce)[gene4, ]<0 & counts(sce)[gene5, ]<0 & counts(sce)[gene6, ]<0 & counts(sce)[gene15,] >0 | counts(sce)[gene16,] >0
+
+OL <-  counts(sce)[gene15,] <0 & counts(sce)[gene16,] <0 & counts(sce)[gene19,]<0 & counts(sce)[gene20,]<0 & counts(sce)[gene21,]<0 & counts(sce)[gene1, ]<0 & counts(sce)[gene2, ]<0 & counts(sce)[gene3, ]<0 & counts(sce)[gene4, ]<0 & counts(sce)[gene5, ]<0 & counts(sce)[gene6, ]<0 & counts(sce)[gene17,] >0 | counts(sce)[gene18,] >0
+
+IN <- MN == FALSE & NPC == FALSE & Glia == FALSE & OL == FALSE & counts(sce)[gene7,] >0 | counts(sce)[gene8,] >0 | counts(sce)[gene9,] >0 | counts(sce)[gene10,] >0 | counts(sce)[gene11,] >0 | counts(sce)[gene12,] >0 | counts(sce)[gene13,] >0 & counts(sce)[gene14,] >0
+
+iPSC <- counts(sce)[gene22, ]>0 | counts(sce)[gene23, ]>0
+
+#Remove cells without the gene
+haveMN <- sce[ ,MN]
+haveIN <- sce[ ,IN]
+haveGlia <- sce[ ,Glia]
+haveOL <- sce[ ,OL]
+haveNPC <- sce[ ,NPC]
+haveiPSC <- sce[ ,iPSC]
+
+#Print the number of cells expressing the gene of interest in eah cluster
+summary(haveiPSC$Cluster)
+summary(haveNPC$Cluster)
+summary(haveMN$Cluster)
+summary(haveIN$Cluster)
+summary(haveGlia$Cluster)
+summary(haveOL$Cluster)
+
+#Print the total number of cells in each cluster
+summary(sce$Cluster)
+```
+
+
+#10 KEEPING ONLY MNPCs AND MNs IN THE DATASET
+
+```{r}
+library(scater)
+# Defining the genes of interest
+gene1 <- "CHAT"
+gene2 <- "ISL1"
+gene3 <- "ISL2"
+gene4 <- "MNX1"
+gene5 <- "OLIG2"
+gene6 <- "NEUROG2"
+
+# Store all the MNPs and MNs (= identified as cells expressing CHAT, ISL1, ISL2, MNX1, OLIG2, NEUROG2) in an object
+keep <- counts(sce)[gene1, ]>0 | counts(sce)[gene2, ]>0 | counts(sce)[gene3, ]>0 | counts(sce)[gene4, ]>0 | counts(sce)[gene5, ]>0 | counts(sce)[gene6, ]>0
+
+#create a copy of the sce that contains only the cells in the previous object
+sce.MN <- sce[,keep]
+
+#print a summary of the new sce object
+sce.MN
+```
+
+#11 QUALITY CONTROL ON THE NEW sce.MN OBJECT
+
+Remove the effects of barcode swapping
+```{r}
+library(DropletUtils)
+set.seed(1000)
+s.out <- swappedDrops (sce.MN, barcode.length=NULL, min.frac=0.9, get.swapped=FALSE, get.diagnostics=FALSE, hdf5.out=TRUE)
+length(s.out$cleaned)
+class(s.out$cleaned[[1]])
+```
+
+##11.1 Quality control on the cells
+
+We compute some QC metrics using calculateQCMetrics() (McCarthy et al. 2017) and examine their distributions.
+```{r}
+library(scater)
+sce.MN <- calculateQCMetrics(sce.MN, feature_controls=list(Mito=which(location=="MT")))
+
+#Examining the number of detected mRNAs per cell
+hist(sce.MN$total_counts/1e3, xlab="UMI Counts (thousands)", breaks=20, col="grey80",
+     ylab="Number of cells", main = "Number of Detected Transcripts per Cell")
+dev.off()
+
+#Examining the number of detected genes per cell
+hist(sce.MN$total_features_by_counts/1e3, breaks=20, col="grey80",
+    xlab="Number of Expressed Genes (thousands)", main = "Number of Detected Genes per Cell", ylab="Number of cells")
+dev.off()
+
+#Examining the proportion of mitochondrial to nuclear DNA
+hist(sce.MN$pct_counts_Mito, breaks=20, col="grey80",
+    xlab="Proportion of Reads That Are Mitochondrial Genes", 
+    ylab="Number of cells", main = "Mitochondrial Genes per Cell")
+dev.off()
+```
+
+##11.2 Removing cells with low library sizes or total number of expressed features, likely corresponding to damaged cells or ambiant RNA.
+
+```{r}
+libsize.drop <- isOutlier(sce.MN$total_counts, nmads=3, type="lower", log=TRUE)
+feature.drop <- isOutlier(sce.MN$total_features_by_counts, nmads=3, type="lower", log=TRUE)
+
+sce.MN <- sce.MN[,!(libsize.drop | feature.drop )]
+
+# Number of cells removed by each filter, and number of remaining cells after QC
+data.frame(ByLibSize=sum(libsize.drop), ByFeature=sum(feature.drop), Remaining=ncol(sce.MN), row.names = "# of cells")
+```
+
+##11.3 Removing cells with large mitochondrial proportions, using it as a proxy for cell damage.
+
+Note that if you run this more than once, the number of true accounts change because you've removed the original batch, changing the proportions --- so make sure you only run it on the sce once.
+```{r}
+high.mito <- isOutlier(sce.MN$pct_counts_Mito, nmads=3, type="higher")
+sce.MN<- sce.MN[,!high.mito]
+summary(high.mito) #True = number of cells excluded because of large mitochondrial RNA to cytoplasmic RNA levels
+```
+
+##11.4 Median values for number of detected reads/cell, number of detected genes/cell and proportion of MT RNA/cell
+
+```{r}
+# Examining the number of detected mRNAs per cell
+DetectedReads.median <- median(sce.MN$total_counts)
+
+# Examining the number of detected genes per cell
+DetectedGenes.median <- median(sce.MN$total_features_by_counts)
+DetectedGenes.min <- min(sce.MN$total_features_by_counts)
+
+# Examining the proportion of mitochondrial to nuclear DNA
+MTproportion.median <- median(sce.MN$pct_counts_Mito)
+
+# Print
+DetectedReads.median
+DetectedGenes.median
+MTproportion.median
+DetectedGenes.min
+```
+
+#12 NORMALIZATION ON THE NEW sce.MN OBJECT
+
+##12.1 Filtering out low-abundance genes (by calculating the average counts across all cells)
+
+```{r}
+ave.counts <- calcAverage(sce.MN)
+to.keep <- ave.counts > 0
+sce.MN <- sce.MN[to.keep,]
+summary(to.keep)
+```
+
+##12.2 Examining gene expression
+
+```{r}
+ave <- calcAverage(sce.MN)
+rowData(sce.MN)$AveCount <- ave
+hist(log10(ave), breaks=100, main="", col="grey80",
+     xlab=expression(Log[10]~"average count"))
+abline(v=log10(1), col="blue", lwd=2, lty=2)
+```
+
+##12.3 Plot the most highly expressed genes
+
+```{r}
+library(ggplot2)
+library(scater)
+plotHighestExprs(sce.MN) + ggtitle("HighestExpressedGenes")
+```
+
+##12.4 Normalizing for cell-specific biases (such as differences in capture efficiency and sequencing depth between cells)
+
+```{r}
+library(scran)
+library(irlba)
+set.seed(1000)
+clusters <- quickCluster(sce.MN, method="igraph", min.mean=0.1,
+    irlba.args=list(maxit=1000))
+table(clusters)
+```
+
+```{r}
+sce.MN <- computeSumFactors(sce.MN, min.mean=0.1, cluster=clusters)
+summary(sizeFactors(sce.MN))
+```
+
+##12.5 Comparing the above size factors to their library size
+
+```{r}
+plot(sizeFactors(sce.MN), sce.MN$total_counts, log="xy", ylab ="UMI Counts Per Cell", xlab = "Size Factor")
+dev.off()
+```
+
+##12.6 Normalizing each gene based on the size factor.
+
+We compute normalized log-expresion values.
+```{r}
+sce.MN <- normalize(sce.MN)
+```
+
+
+#13 MODELLING VARIANCE & DENOISING ON THE NEW sce.MN OBJECT
+
+##13.1 Modelling the mean-variance trend
+
+For a heterogenous population, we assume that the technical noise is Poisson and create a fitted trend on that basis using the makeTechTrend() function. The Poisson-based trend serves as a lower bound for the variances of the endogenous genes, consistent with non-zero biological components. (Lun et al. 2016)
+```{r}
+library(scran)
+new.trend <- makeTechTrend(x=sce.MN)
+fit <- trendVar(sce.MN, use.spikes=FALSE, loess.args=list(span=0.05))
+```
+
+Looking at the variation of the genes compared to the quantity of their expression.
+```{r}
+plot(fit$mean, fit$var, pch=20, ylab = "Variance of Log-Expression", xlab = "Mean Log-Expression", main = "Variance of Gene Log-Expression Values" )
+curve(fit$trend(x), col="dodgerblue", add=TRUE)
+curve(new.trend(x), col="red", add=TRUE) # The blue line represents the mean-dependent trend fitted to the variances, while the red line represents the Poisson (technical) noise.
+```
+
+##13.2 Examining the genes with the highest biological components
+
+```{r}
+fit$trend <- new.trend
+dec <- decomposeVar(fit=fit)
+top.dec <- dec[order(dec$bio, decreasing=TRUE),] 
+head(top.dec)
+```
+
+##13.3 Violin plot of the genes with the largest biological components
+Looking at the distribution of expression values for the top HVGs to ensure that the variance estimate is not being dominated by one or two outlier cells.
+```{r}
+library(scater)
+plotExpression(sce.MN, features=rownames(top.dec)[1:10])
+```
+
+
+#14 DIMENSIONALITY REDUCTION ON THE NEW sce.MN OBJECT
+
+##14.1 Removing the principal components (PCs) corresponding to technical noise
+
+We assume that co-regulation of genes will account for a large portion of the variance (and thus an earlier principle component) and that random, technical noise will affects each gene differently and therefore will account for way less variance (and thus a later principle component). So by using only a few early principle components, we get rid of this random variance that is likely caused by random technical noise.
+```{r}
+library(scran)
+library(scater)
+
+# Set seed to allow replicability
+set.seed(1000)
+
+# Save the sce after using PCA to regress out technical noise
+sce.MN <- denoisePCA(sce.MN, technical=new.trend, approx=TRUE)
+
+# Updating the sce object with the PC scores for each cell in the reducedDims slot
+ncol(reducedDim(sce.MN, "PCA"))
+```
+
+PCA plot of the first few components (can change the amounts by using ncomponents) to visualize the relationships between cells. Each point represents a cell, coloured according to its total number of expressed features (ie number of expressed genes). Bars represent the coordinates of the cells on each axis.
+```{r}
+plot(attr(reducedDim(sce.MN), "percentVar"), xlab="PC",
+    ylab="Proportion of variance explained")
+abline(v=ncol(reducedDim(sce.MN, "PCA")), lty=2, col="red") 
+dev.off() # The red line represents the chosen number of principle components
+```
+
+##14.2 Examining the first few PCs.
+
+Note: outliers on a PCA plot may be indicative of low-quality cells that have aberrant technical properties compared to the (presumed) majority of high-quality cells.
+```{r}
+plotPCA(sce.MN, ncomponents=3)
+```
+
+##14.3 Visualizing data with a t-SNE plot
+
+Again, note that we set use_dimred= to perform t-SNE on the denoised expression matrix.
+Comparing the t-SNE plots obtained with Perplexity=30, 40 or 50 to ensure stability in the substructure of the t-SNE plot across varying perplexities
+```{r}
+set.seed(100)
+runTSNE(sce.MN, use_dimred="PCA", perplexity=30, set.seed=100) 
+tSNE30 <- plotTSNE(sce.MN) + ggtitle ("Perplexity = 30")
+
+set.seed(100)
+runTSNE(sce.MN, use_dimred="PCA", perplexity=40, set.seed=100) 
+tSNE40 <- plotTSNE(sce.MN) + ggtitle ("Perplexity = 40")
+
+set.seed(100)
+runTSNE(sce.MN, use_dimred="PCA", perplexity=50, set.seed=100) 
+tSNE50 <- plotTSNE(sce.MN) + ggtitle ("Perplexity = 50")
+
+multiplot(tSNE30, tSNE40, tSNE50, cols=3) # Each point represents a cell and is coloured according to the log-number of expressed features.
+```
+
+##14.4 Running the t-SNE with the appropriate perplexity and saving the updated sce.MN object
+
+```{r}
+sce.MN <- runTSNE(sce.MN, use_dimred="PCA", perplexity=40, set.seed=100) 
+plotTSNE(sce.MN) + ggtitle ("t-SNE, Perplexity = 40")
+```
+
+#15. CLUSTERING WITH GRAPH-BASED METHODS ON THE NEW sce.MN OBJECT
+
+Build a shared nearest neighbour (SNN) graph (Xu and Su 2015) and use the Walktrap algorithm to identify clusters
+```{r}
+library(scran)
+library(scater)
+
+set.seed(1000)
+snn.gr <- buildSNNGraph(sce.MN, use.dimred="PCA")
+clusters <- igraph::cluster_walktrap(snn.gr, steps = 8)
+sce.MN$Cluster <- factor(clusters$membership)
+table(sce.MN$Cluster)
+```
+
+##15.1 Examining the clusters separation
+
+```{r}
+library(pheatmap)
+cluster.mod <- clusterModularity(snn.gr, sce.MN$Cluster, get.values=TRUE)
+log.ratio <- log2(cluster.mod$observed/cluster.mod$expected + 1)
+pheatmap(log.ratio, cluster_rows=FALSE, cluster_cols=FALSE, 
+     color=colorRampPalette(c("white", "blue"))(100), main = "Heatmap Showing Cluster Separation") # This heatmap indicates that most of the clusters are well seperated, with few strong off-diagonal entries.
+```
+
+##15.2 Examining the cluster identities on a t-SNE plot, to confirm that different clusters are indeed separated.
+
+```{r}
+plotTSNE(sce.MN, colour_by="Cluster") +  ggtitle("t-SNE -MN only- by Cluster, Perplexity = 40") # Each point represents a cell and is coloured according to its cluster identity.
+```
+
+#16 IDENTIFYING MNs SUBPOPULATIONS
+
+##16.1 Colouring the t-SNE plot for LMC MNs (cells identified as LHX3- FOXP1+)
+```{r}
+sce.MN$LMC <- counts(sce.MN)["LHX3",] <1 & counts(sce.MN)["FOXP1",] >=1
+plotTSNE(sce.MN, colour_by = "LMC") +  ggtitle("tSNE-LMC MNs, Perplexity = 40") 
+```
+
+##16.2 Colouring the t-SNE plot for MMC MNs (cells identified as LHX3+ FOXP1-)
+
+```{r}
+sce.MN$MMC <- counts(sce.MN)["LHX3",] >=1 & counts(sce.MN)["FOXP1",] <1
+plotTSNE(sce.MN, colour_by = "MMC") +  ggtitle("tSNE-MMC MNs, Perplexity = 40") 
+```
+
+##16.3 Colouring the t-SNE plot for cervical HMC MNs (cells identified as LHX3- FOXP1- HOXA5+)
+
+```{r}
+sce.MN$HMC <- counts(sce.MN)["LHX3",] <1 & counts(sce.MN)["FOXP1",] <1 & counts(sce.MN)["HOXA5",] >=1
+plotTSNE(sce.MN, colour_by = "HMC") +  ggtitle("tSNE-HMC MNs (LHX3-FOXP1-HOXA5+), Perplexity = 40") 
+```
+
+##16.4 Counting the number of cells per cluster, for each identified MNP and MN subtypes
+```{r}
+# Defining genes for MNPs and MN identification
+gene1 <- "CHAT"
+gene2 <- "ISL1"
+gene3 <- "ISL2"
+gene4 <- "MNX1"
+gene5 <- "OLIG2"
+gene6 <- "NEUROG2"
+
+#List of genes for MN subtypes
+gene7 <- "LHX3"
+gene8 <- "FOXP1"
+gene9 <- "HOXA5"
+gene10 <- "POU3F1"
+gene11 <- "PHOX2B"
+gene12 <- "HOXB1"
+gene13 <- "OTX2"
+gene14 <- "MAFB"
+gene15 <- "TSHZ1"
+
+#Create a boolean list of cells expressing the gene of interest
+MNP <- counts(sce.MN)[gene5, ]>0
+MMC <- counts(sce.MN)[gene7, ]>0 & counts(sce.MN)[gene8, ]<1 
+LMC <- counts(sce.MN)[gene8, ]>0 & counts(sce.MN)[gene7, ]<1 
+HMC <- counts(sce.MN)[gene7, ]<1 & counts(sce.MN)[gene8, ]<1 & counts(sce.MN)[gene9, ]>0 
+PMC <- counts(sce.MN)[gene7, ]<1 &  counts(sce.MN)[gene8, ]<1 & counts(sce.MN)[gene9, ]>0 & counts(sce.MN)[gene10, ]>0 | counts(sce.MN)[gene7, ]<1 &  counts(sce.MN)[gene8, ]<1 & counts(sce.MN)[gene9, ]>0 & counts(sce.MN)[gene15, ]>0 
+SAC <- counts(sce.MN)[gene11, ]>0
+Hindbrain <- counts(sce.MN)[gene13, ]>1 | counts(sce.MN)[gene14, ]>4 & counts(sce.MN)[gene12, ]>3
+
+#Remove cells without the gene
+haveMNP <- sce.MN[ ,MNP]
+haveMMC <- sce.MN[ ,MMC]
+haveLMC <- sce.MN[ ,LMC]
+haveHMC <- sce.MN[ ,HMC]
+havePMC <- sce.MN[ ,PMC]
+haveSAC <- sce.MN[ ,SAC]
+haveHindbrain <- sce.MN[ ,Hindbrain]
+
+#Print the number of cells expressing the gene of interest in eah cluster
+summary(haveMNP$Cluster)
+summary(haveMMC$Cluster)
+summary(haveLMC$Cluster)
+summary(haveHMC$Cluster)
+summary(havePMC$Cluster)
+summary(haveSAC$Cluster)
+summary(haveHindbrain$Cluster)
+
+#Print the total number of cells in each cluster
+summary(sce.MN$Cluster)
+```
+
+#17 DETECTING MARKER GENES BETWEEN SUBPOPULATIONS
+Identifying genes that are consistently differentially expressed (DE) in one subpopulation compared to the others. DE testing can be performed with the edgeR package (Robinson et al. 2010).
+
+##17.1 Setting up a design matrix specifying which cells belong to each cluster
+*Note: clusters were defined in #15-"Clustering"
+
+```{r}
+library(limma)
+library(edgeR)
+library(scran)
+library(scater)
+
+#Set up a design matrix
+cluster <- factor(sce.MN$Cluster)
+de.design <- model.matrix(~0 + cluster)
+head(colnames(de.design))
+```
+
+##17.2 Setting up a DGElist object for entry into the edgeR analysis
+
+edgeR uses negative binomial (NB) distributions to model the read/UMI counts for each sample. We estimate the NB dispersion parameter that quantifies the biological variability in expression across cells in the same cluster. Large dispersion estimates above 0.5 are often observed in scRNA-seq data due to technical noise (in contrast to bulk data where values of 0.05-0.2 are more typical). We then use the design matrix to fit a NB GLM to the counts for each gene (McCarthy et al. 2012).
+```{r}
+DEG.list <- convertTo(sce.MN, type="edgeR") # This new object contains all relevant information from the original sce object.
+DEG.list <- estimateDisp(DEG.list, de.design)
+fit <- glmQLFit(DEG.list, de.design, robust=TRUE)
+summary(DEG.list$tagwise.dispersion)
+```
+
+##17.3 Identification of all DE genes between each cluster
+
+We assume that each cluster corresponds to one or two specific subpopulations (LMC MNs or HMC MNs for example). Each gene is tested for DE between the chosen cluster and every other cluster in the dataset. The same process can be applied to any cluster by changing "chosen.clust"
+```{r}
+result.logFC <- result.PValue <- list()
+chosen.clust <- which (levels(cluster)=="1") #character as "cluster" is a factor
+for (clust in seq_len(nlevels(cluster))) {
+  if (clust==chosen.clust) {next}
+  contrast <- numeric(ncol(de.design))
+  contrast [chosen.clust] <- 1
+  contrast [clust] <- -1
+  res <- glmQLFTest(fit, contrast=contrast) # This will make pairwise comparisons between the chosen cluster and all others.
+  con.name <- paste0('vs.', levels(cluster)[clust])
+  result.logFC[[con.name]] <- res$table$logFC
+  result.PValue [[con.name]] <- res$table$PValue
+}
+```
+
+##17.4 Potential marker genes identification
+
+Potential marker genes are identified by taking the top DE genes from each pairwise comparison between clusters. We arrange the results into a single output table that allows a marker set to be easily defined for a specifized size of the top set. 
+```{r}
+collected.ranks <- lapply(result.PValue, rank, ties="first")
+min.rank <- do.call(pmin, collected.ranks)
+marker.set <- data.frame(Top=min.rank, Gene=rownames(DEG.list), logFC=do.call(cbind, result.logFC), stringsAsFactors=FALSE)
+marker.set <- marker.set[order(marker.set$Top),]
+
+head(marker.set, 5)
+```
+
+##17.5 Saving the list of candidate marker genes for further examination
+
+If most of the top markers have strong and consistent up- or downregulation in cells of cluster N compared to some or all of the other clusters, than cells from cluster N can be identified as those that express the upregulated markers and do not express the downregulated markers.
+```{r}
+#remove any duplicates
+marker.set<- unique(marker.set)
+
+sce.hm.unique <- unique(sce.MN$Barcode)
+sce.MN.hm <- sce.MN[ , sce.hm.unique]
+
+write.table(marker.set, file="/Users/louise/Documents/R workflow/ToSave/_5markerCcluster1",sep="\t", col.names=NA, quote=FALSE)
+
+top.markers <- marker.set$Gene [marker.set$Top <= 5]
+```
+
+We also examine their expression profiles to verify that the DE signature is robust
+```{r}
+plotHeatmap(sce.MN.hm, features=top.markers, exprs_values="logcounts", cellheight = 9,
+    zlim=NULL, center=TRUE, symmetric=TRUE,cluster_col=FALSE,
+    colour_columns_by="Cluster", columns=order(sce.MN.hm$Cluster), main= paste("5MostDEGs Cluster 1 Heatmap"), fontsize_row = 5, fontsize_col = 0.2, treeheight_col = 10)
+```
+
+#18 GENE ONTOLOGY (GO) ANALYSIS WITH goseq
+
+We use p.adjust() to convert P-values to FDR (p-values corrected for multiple hypothesis tests) since goseq does not do this internally. Then, Format the DEG list (topTags output from edgeR) into a vector suitable for goseq() - a vector of all DEGs where sig genes are marked "1" and others are marked "0"
+```{r}
+library(goseq)
+genes=as.integer(p.adjust(res$table$PValue[res$table$logFC!=0],method="BH")<.05)
+names(genes)=row.names(res$table[res$table$logFC!=0,])
+table(genes)
+```
+
+##18.1 Saving the DEGs list and the number of DEGs.
+
+We use the hg19 build of the human genome, which in goseq() has gene ID formats for ENSEMBL IDs ("ensGene"), Entrez IDs ("knownGene") and gene symbols ("geneSymbol"). Full list of supported organisms can be viewed by running supportedOrganisms(). Using supported gene ID formats allows goseq() to automatically fetch GO terms, as well as normalize for gene length bias.
+```{r}
+write.table(genes, file="/Users/louise/Documents/R workflow/ToSave/GOseq-Cluster1 DEGs", sep="\t", quote=FALSE, col.names=NA, row.names=TRUE)
+write.table(table(genes), file="/Users/louise/Documents/R workflow/ToSave/GOseq-Cluster1 #ofDEGs", sep="\t", quote=FALSE, col.names=NA, row.names=TRUE)
+```
+
+##18.2 Fitting the probability weighting function (PWF)
+
+```{r}
+# This gives the probability that a gene would be considered differentially expressed based on its gene length alone
+pwf=nullp(genes,"hg19", "geneSymbol")
+GO.wall=goseq(pwf, "hg19", "geneSymbol") 
+
+#Extract the GO terms that are enriched above 0.05 FDR cutoff (Benjamini and Hochberg 1995)
+enriched.GO=GO.wall[p.adjust(GO.wall$over_represented_pvalue,method="BH")<.05,]
+```
+
+#18.3 Identifying the enriched GO terms in the chosen cluster
+
+How many molecular functions (MF), biological proceeses (BP), and cellular component (CC) terms are significantly enriched in the sig DEGs compared to the other genes?
+```{r}
+NROW(which(enriched.GO$ontology=="MF"))
+NROW(which(enriched.GO$ontology=="CC"))
+NROW(which(enriched.GO$ontology=="BP"))
+```
+
+What are the GO terms that are significantly enriched?
+```{r}
+goseq_CC <- enriched.GO[enriched.GO$ontology=="CC",]
+goseq_CC
+goseq_MF <- enriched.GO[enriched.GO$ontology=="MF",]
+goseq_MF
+goseq_BP <- enriched.GO[enriched.GO$ontology=="BP",]
+goseq_BP
+```
+
+Extracting interesting terms from BP category and ordering by enrichment in DEGs
+```{r}
+BPtermsofinterest <- c(grep("neur.*", enriched.GO$term, value=TRUE), grep("diff.*", enriched.GO$term, value=TRUE), grep("motor.*", enriched.GO$term, value=TRUE), grep("dev.*", enriched.GO$term, value=TRUE), grep("fate.*", enriched.GO$term, value=TRUE), grep("prolif.*", enriched.GO$term, value=TRUE),grep("pattern.*", enriched.GO$term, value=TRUE),grep("spinal.*", enriched.GO$term, value=TRUE),grep("cycle.*", enriched.GO$term, value=TRUE),grep("interneur.*", enriched.GO$term, value=TRUE),grep("muscle.*", enriched.GO$term, value=TRUE))
+goseq_BPtermsofinterest <- goseq_BP[goseq_BP$term %in% BPtermsofinterest,]
+goseq_BPtermsofinterest
+goseq_MFtermsofinterest <- goseq_MF[goseq_MF$term %in% BPtermsofinterest,]
+goseq_MFtermsofinterest
+```
