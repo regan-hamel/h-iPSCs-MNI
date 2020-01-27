@@ -51,15 +51,6 @@ summary(location=="MT") #TRUE = MT gene
 
 #4 QUALITY CONTROL (QC)
 
-Remove the effects of barcode swapping 
-```{r}
-library(DropletUtils)
-set.seed(1000)
-s.out <- swappedDrops (sce, barcode.length=NULL, min.frac=0.9, get.swapped=FALSE, get.diagnostics=FALSE, hdf5.out=TRUE)
-length(s.out$cleaned)
-class(s.out$cleaned[[1]])
-```
-
 ##4.1 Quality control on the cells
 
 We compute some QC metrics using  calculateQCMetrics() (McCarthy et al. 2017) and examine their distributions.
