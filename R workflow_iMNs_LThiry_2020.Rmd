@@ -2,7 +2,7 @@
 title: "HUMAN iPSC DERIVED MOTOR NEURONS AFTER 28 DAYS OF INDUCTION"
 
 workflow adapted from:
-Lun, A. M., DJ; Marioni, JC (2016). "A step-by-step workflow for low-level analysis of single-cell RNA-seq data with Bioconductor." F1000 Research 5(2122 ).
+Lun, A. M., DJ; Marioni, JC (2016). "A step-by-step workflow for low-level analysis of single-cell RNA-seq data with Bioconductor." F1000 Research 5(2122).
 	
 version authour:
 - name: Regan Hamel
@@ -16,10 +16,10 @@ date: "`r Sys.Date()`"
 
 ---
 
-##**INTRODUCTION**
+**INTRODUCTION**
 Human induced pluripotent stem cells (iPSCs) offer the opportunity to generate specific cell types from healthy and diseased individuals, allowing the study of mechanisms of early human development, modelling a variety of human diseases, and facilitating the development of new therapeutics. Human iPSC-based applications are often limited by the variability among iPSC lines originating from a single donor, as well as the heterogeneity among specific cell types that can be derived from iPSCs. The ability to deeply phenotype different iPSC-derived cell types is therefore of primary importance to the successful and informative application of this technology. Here we describe a combination of motor neuron (MN) derivation and single-cell RNA sequencing approaches to generate and characterize specific MN subtypes obtained from human iPSCs. Our studies provide evidence for rapid and robust generation of MN progenitor cells that can give rise to a heterogenous population of brainstem and spinal cord MNs. Approximately 58% of human iPSC-derived MNs display molecular characteristics of lateral motor column MNs, ∼19% of induced MNs resemble hypaxial motor column MNs, while ∼6% of induced MNs have features of medial motor column MNs. The present study has the potential to improve our understanding of iPSC-derived MN subtype function and dysfunction, possibly leading to improved iPSC-based applications for the study of human MN biology and diseases.
 
-##**1 INSTALLING BIOCONDUCTOR & PACKAGES**
+**1 INSTALLING BIOCONDUCTOR & PACKAGES**
  
 ```{r}
 # Clear the workspace
@@ -106,7 +106,7 @@ BiocManager::install("goseq")
 seshInfo <- sessionInfo()
 ```
 
-##**2 READING IN A SPARSE MATRIX**
+**2 READING IN A SPARSE MATRIX**
 
 ```{r}
 # We load the 10X filtered data, creating a SingleCellExperiment (sce) object where each column corresponds to a cell barcode.
@@ -178,7 +178,7 @@ class(s.out$cleaned[[1]])
 
 ```
 
-##**3 ANNOTATING THE ROWS WITH GENE SYMBOLS**
+**3 ANNOTATING THE ROWS WITH GENE SYMBOLS**
 
 ```{r}
 # This is done using the  uniquifyFeatureNames() function, which ensures uniqueness in the case of duplicated or missing symbols.
@@ -204,7 +204,7 @@ save(location, file="/Users/louise/Documents/R workflow/Objects/location_1")
 rm(list = ls())
 ```
 
-##**4 QUALITY CONTROL**
+**4 QUALITY CONTROL**
 
 ```{r}
 # Load previous object (if using the same dataset).
@@ -279,7 +279,7 @@ MTproportion.median
 DetectedGenes.min
 ```
 
-##**5 NORMALIZATION** 
+**5 NORMALIZATION** 
 
 ###5.1 Filtering out low-abundance genes
 This is done by calculating the average counts across all cells
@@ -352,7 +352,7 @@ save(sce, file = "/Users/louise/Documents/R workflow/Objects/sce_postQC")
 rm(list = ls())
 ```
 
-##**6 MODELLING VARIANCE & DENOISING**
+**6 MODELLING VARIANCE & DENOISING**
 
 ```{r}
 # Load previous object (if using the same dataset).
@@ -401,7 +401,7 @@ save(new.trend, file = "/Users/louise/Documents/R workflow/Objects/new.trend")
 rm(list = ls())
 ```
 
-##**7 DIMENSIONALITY REDUCTION**
+**7 DIMENSIONALITY REDUCTION**
 
 ```{r}
 # Load previous objects (if using the same dataset).
@@ -475,7 +475,7 @@ plotTSNE(sce) + ggtitle ("t-SNE, Perplexity = 40")
 rm(list = ls())
 ```
 
-##**8 CLUSTERING WITH GRAPH-BASED METHODS**
+**8 CLUSTERING WITH GRAPH-BASED METHODS**
 
 ```{r}
 # Load previous objects (if using the same dataset)
@@ -514,7 +514,7 @@ plotTSNE(sce, colour_by="Cluster") +  ggtitle("t-SNE by Cluster, Perplexity = 40
 save(sce, file = "/Users/louise/Documents/R workflow/Objects/sce_clusters")
 ```
 
-##**9 IDENTIFYING SUB-POPULATIONS IN THE DATA SET**
+**9 IDENTIFYING SUB-POPULATIONS IN THE DATA SET**
 
 ```{r}
 #Count Motor Neurons (MNs) and Motor Neuron Progenitor Cells (MNPCs), identified by the expression of CHAT, ISL1, ISL2, MNX1, OLIG2, NEUROG2
@@ -648,7 +648,7 @@ summary(sce$Cluster)
 rm(list = ls())
 ```
 
-##**10 KEEPING ONLY MNPCs AND MNs IN THE DATASET**
+**10 KEEPING ONLY MNPCs AND MNs IN THE DATASET**
 
 ```{r}
 library(scater)
@@ -684,7 +684,7 @@ save(location, file="/Users/louise/Documents/R workflow/Objects/location_sce.MN"
 rm(list = ls())
 ```
 
-##**11 QUALITY CONTROL ON THE NEW sce.MN OBJECT**
+**11 QUALITY CONTROL ON THE NEW sce.MN OBJECT**
 
 ```{r}
 # Remove the effects of barcode swapping - updated Jan 24, 2019
@@ -762,7 +762,7 @@ MTproportion.median
 DetectedGenes.min
 ```
 
-##**12 NORMALIZATION ON THE NEW sce.MN OBJECT**
+**12 NORMALIZATION ON THE NEW sce.MN OBJECT**
 
 ###12.1 Filtering out low-abundance genes
 This is done by calculating the average counts across all cells.
@@ -832,7 +832,7 @@ save(sce.MN, file = "/Users/louise/Documents/R workflow/Objects/sce.MN_postQC")
 rm(list = ls())
 ```
 
-##**13 MODELLING VARIANCE & DENOISING ON THE NEW sce.MN OBJECT**
+**13 MODELLING VARIANCE & DENOISING ON THE NEW sce.MN OBJECT**
 
 ```{r}
 # Load previous object (if using the same dataset).
@@ -881,7 +881,7 @@ save(new.trend, file = "/Users/louise/Documents/R workflow/Objects/sce.MN_new.tr
 rm(list = ls())
 ```
 
-##**14 DIMENSIONALITY REDUCTION ON THE NEW sce.MN OBJECT**
+**14 DIMENSIONALITY REDUCTION ON THE NEW sce.MN OBJECT**
 
 ```{r}
 # Load previous objects (if using the same dataset).
@@ -955,7 +955,7 @@ plotTSNE(sce.MN) + ggtitle ("t-SNE, Perplexity = 40")
 rm(list = ls())
 ```
 
-##**15 CLUSTERING WITH GRAPH-BASED METHODS ON THE NEW sce.MN OBJECT**
+**15 CLUSTERING WITH GRAPH-BASED METHODS ON THE NEW sce.MN OBJECT**
 
 ```{r}
 # Load previous objects (if using the same dataset)
@@ -994,7 +994,7 @@ save(sce.MN, file = "/Users/louise/Documents/R workflow/Objects/sce.MN_clusters"
 load("/Users/louise/Documents/R workflow/Objects/sce.MN_clusters")
 ```
 
-##**16 IDENTIFYING MNs SUBPOPULATIONS**
+**16 IDENTIFYING MNs SUBPOPULATIONS**
 
 ###16.1 Colouring the t-SNE plot for LMC MNs
 LMC MNs are cells identified as LHX3- FOXP1+
@@ -1232,7 +1232,7 @@ plotTSNE(sce.MN, colour_by = "LHX1") +  ggtitle("tSNE-LHX1 expression level, Per
 rm(list = ls())
 ```
 
-##**17 DETECTING MARKER GENES BETWEEN SUBPOPULATIONS**
+**17 DETECTING MARKER GENES BETWEEN SUBPOPULATIONS**
 Identifying genes that are consistently differentially expressed (DE) in one subpopulation compared to the others. DE testing can be performed with the edgeR package (Robinson et al. 2010).
 
 ###17.1 Setting up a design matrix specifying which cells belong to each cluster
@@ -1314,7 +1314,7 @@ plotHeatmap(sce.MN.hm, features=top.markers, exprs_values="logcounts", cellheigh
     colour_columns_by="Cluster", columns=order(sce.MN.hm$Cluster), main= paste("5MostDEGs Cluster 1 Heatmap"), fontsize_row = 5, fontsize_col = 0.2, treeheight_col = 10)
 ```
 
-##**18 GENE ONTOLOGY ANALYSIS WITH goseq**
+**18 GENE ONTOLOGY ANALYSIS WITH goseq**
 
 ```{r}
 library(goseq)
