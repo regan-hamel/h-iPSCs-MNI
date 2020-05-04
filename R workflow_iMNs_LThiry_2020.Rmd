@@ -16,9 +16,95 @@ McGill University
 date: "`r Sys.Date()`"
 
 ---
-
-#1 INTRODUCTION
+##**INTRODUCTION**
 Human induced pluripotent stem cells (iPSCs) offer the opportunity to generate specific cell types from healthy and diseased individuals, allowing the study of mechanisms of early human development, modelling a variety of human diseases, and facilitating the development of new therapeutics. Human iPSC-based applications are often limited by the variability among iPSC lines originating from a single donor, as well as the heterogeneity among specific cell types that can be derived from iPSCs. The ability to deeply phenotype different iPSC-derived cell types is therefore of primary importance to the successful and informative application of this technology. Here we describe a combination of motor neuron (MN) derivation and single-cell RNA sequencing approaches to generate and characterize specific MN subtypes obtained from human iPSCs. Our studies provide evidence for rapid and robust generation of MN progenitor cells that can give rise to a heterogenous population of brainstem and spinal cord MNs. Approximately 58% of human iPSC-derived MNs display molecular characteristics of lateral motor column MNs, ∼19% of induced MNs resemble hypaxial motor column MNs, while ∼6% of induced MNs have features of medial motor column MNs. The present study has the potential to improve our understanding of iPSC-derived MN subtype function and dysfunction, possibly leading to improved iPSC-based applications for the study of human MN biology and diseases.
+
+##**1 INSTALLING BIOCONDUCTOR & PACKAGES**
+ 
+```{r}
+# Clear the workspace
+rm(list = ls())
+
+# Set the workspace
+setwd("/Users/louise/Documents/R workflow")
+
+# Install CRAN packages
+install.packages("remotes")
+install.packages("irlba")
+install.packages("cowplot")
+install.packages("Rtsne")
+install.packages("igraph")
+install.packages("gtools")
+install.packages("pheatmap")
+install.packages("ggplot2")
+
+# Install DropletUtils (only available on the R development version, see https://github.com/MarioniLab/DropletUtils/issues/9) 
+remotes::install_github("r-lib/remotes")
+remotes::install_github("MarioniLab/DropletUtils")
+
+# Download Bioconductor
+if (!requireNamespace("BiocManager"))
+    install.packages("BiocManager")
+BiocManager::install()
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("scater", version = "3.8")
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("BiocFileCache", version = "3.8")
+
+# Install gene symbols for humans: org.Hs.eg.db and EnsDb.Hsapiens.v86 
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("org.Hs.eg.db", version = "3.8")
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("EnsDb.Hsapiens.v86", version = "3.8")
+
+# Install tools and methods for making and manipulating transcript centric annotations
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("GenomicFeatures", version = "3.8")
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("AnnotationDbi", version = "3.8")
+
+# Install functions for low-level analyses of single-cell RNA-seq data. Methods are provided for normalization of cell-specific biases, assignment of cell cycle phase, detection of highly variable and significantly correlated genes, correction of batch effects, identification of marker genes," Aaron Lun
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("scran", version = "3.8")
+
+# Install packages for data analysis, linear models and differential expression for microarray data.
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("limma", version = "3.8")
+
+#Install utility functions for handling single-cell (RNA-seq) data from droplet technologies such as 10X Genomics.
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("DropletUtils", version = "3.9")
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("EnsDb.Hsapiens.v86", version = "3.8")
+
+#Install edgeR
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("edgeR") #To view documentation for the version of this package installed in your system, enter: browseVignettes("edgeR")
+
+# Install goseq
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("goseq")
+
+#Run and save session info
+seshInfo <- sessionInfo()
+```
 
 #2 READING IN A SPARSE MATRIX
 
